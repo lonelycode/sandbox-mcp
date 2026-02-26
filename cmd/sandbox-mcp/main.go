@@ -4,11 +4,13 @@ import (
 	"context"
 	"flag"
 	"log"
+	"sort"
 
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/pottekkat/sandbox-mcp/internal/appconfig"
 	"github.com/pottekkat/sandbox-mcp/internal/config"
 	"github.com/pottekkat/sandbox-mcp/internal/sandbox"
+	"github.com/pottekkat/sandbox-mcp/internal/session"
 )
 
 func main() {
@@ -80,6 +82,24 @@ func main() {
 
 			log.Printf("Added %s tool from config", cfg.Id)
 		}
+
+		// Create session manager and register session tools
+		mgr := session.NewSessionManager(configs)
+		defer mgr.DestroyAll()
+
+		sandboxIDs := make([]string, 0, len(configs))
+		for id := range configs {
+			sandboxIDs = append(sandboxIDs, id)
+		}
+		sort.Strings(sandboxIDs)
+
+		s.AddTool(session.NewSessionCreateTool(sandboxIDs), session.NewSessionCreateHandler(mgr))
+		s.AddTool(session.NewSessionExecTool(), session.NewSessionExecHandler(mgr))
+		s.AddTool(session.NewSessionWriteFileTool(), session.NewSessionWriteFileHandler(mgr))
+		s.AddTool(session.NewSessionReadFileTool(), session.NewSessionReadFileHandler(mgr))
+		s.AddTool(session.NewSessionDestroyTool(), session.NewSessionDestroyHandler(mgr))
+
+		log.Println("Added session tools (session_create, session_exec, session_write_file, session_read_file, session_destroy)")
 
 		log.Println("Starting Sandbox MCP server...")
 
