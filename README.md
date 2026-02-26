@@ -99,6 +99,33 @@ Add this to your `claude_desktop_config.json` for Claude Desktop or `mcp.json` f
 > [!NOTE]
 > Make sure to replace `path/to/sandbox-mcp` with the actual path to the `sandbox-mcp` binary.
 
+### Modes
+
+Sandbox MCP runs in one of two modes, controlled by the `--sessions` flag:
+
+| Mode | Args | Tools exposed |
+|------|------|---------------|
+| **Ephemeral** (default) | `--stdio` | One-shot sandbox tools (`python`, `go`, `shell`, etc.) — a fresh container per call |
+| **Sessions** | `--stdio --sessions` | Persistent session tools (`session_create`, `session_exec`, etc.) — long-lived containers |
+
+Only one set of tools is exposed at a time, so the LLM sees a clear, unambiguous tool set.
+
+To use session mode:
+
+```json
+{
+    "mcpServers": {
+        "sandbox-mcp": {
+            "command": "path/to/sandbox-mcp",
+            "args": [
+                "--stdio",
+                "--sessions"
+            ]
+        }
+    }
+}
+```
+
 ## Available Sandboxes
 
 | Sandbox | Description |
@@ -114,8 +141,39 @@ Add this to your `claude_desktop_config.json` for Claude Desktop or `mcp.json` f
 
 > [!IMPORTANT]
 > ### Your Own Sandbox
-> 
+>
 > You can create and add your own sandboxes in `$XDG_CONFIG_HOME/sandbox-mcp/sandboxes`. A sandbox is essentially a Dockerfile and a JSON configuration. Check out the [examples and the guide](/sandboxes) to learn more.
+
+## Persistent Sessions
+
+Sandbox MCP provides **persistent session tools** for iterative workflows like writing code, running tests, fixing issues, and re-running — all within a single long-lived container. Enable session mode by passing `--sessions` (see [Modes](#modes) above).
+
+### Session Tools
+
+| Tool | Description |
+|------|-------------|
+| `session_create` | Create a persistent session from any available sandbox (e.g. `python`, `go`). Returns a `session_id`. |
+| `session_exec` | Run a shell command in a running session. Returns stdout/stderr. |
+| `session_write_file` | Write a file into the session's working directory. |
+| `session_read_file` | Read a file from the session. Optionally copy it to a host path for artifact extraction. |
+| `session_destroy` | Tear down the session, removing its container and temporary files. |
+
+### Example Workflow
+
+1. **Create a session**: `session_create` with `sandbox=python`
+2. **Write code**: `session_write_file` to create `main.py`
+3. **Run it**: `session_exec` with `python main.py`
+4. **Write tests**: `session_write_file` to create `test_main.py`
+5. **Run tests**: `session_exec` with `python -m pytest test_main.py`
+6. **Iterate**: Fix code, re-run — the container stays alive
+7. **Extract artifacts**: `session_read_file` with an optional `host_path` to copy files out
+8. **Clean up**: `session_destroy` when done
+
+### Session Lifecycle
+
+- Sessions use the **same security model** (resource limits, capability drops, network isolation) as ephemeral sandboxes.
+- Sessions idle for more than **15 minutes** or running longer than **2 hours** are automatically cleaned up.
+- All sessions are destroyed gracefully when the MCP server exits.
 
 ## Development
 

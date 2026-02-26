@@ -16,6 +16,7 @@ import (
 func main() {
 	// Parse flags
 	stdio := flag.Bool("stdio", false, "Start the MCP via stdio transport")
+	sessions := flag.Bool("sessions", false, "Expose persistent session tools instead of ephemeral sandbox tools")
 	build := flag.Bool("build", false, "Build Docker images for all sandboxes")
 	pull := flag.Bool("pull", false, "Pull default sandboxes from GitHub")
 	force := flag.Bool("force", false, "Force overwrite existing sandboxes when pulling")
@@ -69,37 +70,33 @@ func main() {
 			server.WithToolCapabilities(false),
 		)
 
-		// Create and add tools for each sandbox configuration
-		for _, cfg := range configs {
-			// Create a new tool from the config
-			tool := sandbox.NewSandboxTool(cfg)
+		if *sessions {
+			// Persistent session mode: expose session lifecycle tools
+			mgr := session.NewSessionManager(configs)
+			defer mgr.DestroyAll()
 
-			// Create a handler using the sandbox config
-			handler := sandbox.NewSandboxToolHandler(cfg)
+			sandboxIDs := make([]string, 0, len(configs))
+			for id := range configs {
+				sandboxIDs = append(sandboxIDs, id)
+			}
+			sort.Strings(sandboxIDs)
 
-			// Add the tool to the server
-			s.AddTool(tool, handler)
+			s.AddTool(session.NewSessionCreateTool(sandboxIDs), session.NewSessionCreateHandler(mgr))
+			s.AddTool(session.NewSessionExecTool(), session.NewSessionExecHandler(mgr))
+			s.AddTool(session.NewSessionWriteFileTool(), session.NewSessionWriteFileHandler(mgr))
+			s.AddTool(session.NewSessionReadFileTool(), session.NewSessionReadFileHandler(mgr))
+			s.AddTool(session.NewSessionDestroyTool(), session.NewSessionDestroyHandler(mgr))
 
-			log.Printf("Added %s tool from config", cfg.Id)
+			log.Println("Session mode: added session tools (session_create, session_exec, session_write_file, session_read_file, session_destroy)")
+		} else {
+			// Ephemeral mode (default): expose one-shot sandbox tools
+			for _, cfg := range configs {
+				tool := sandbox.NewSandboxTool(cfg)
+				handler := sandbox.NewSandboxToolHandler(cfg)
+				s.AddTool(tool, handler)
+				log.Printf("Added %s tool from config", cfg.Id)
+			}
 		}
-
-		// Create session manager and register session tools
-		mgr := session.NewSessionManager(configs)
-		defer mgr.DestroyAll()
-
-		sandboxIDs := make([]string, 0, len(configs))
-		for id := range configs {
-			sandboxIDs = append(sandboxIDs, id)
-		}
-		sort.Strings(sandboxIDs)
-
-		s.AddTool(session.NewSessionCreateTool(sandboxIDs), session.NewSessionCreateHandler(mgr))
-		s.AddTool(session.NewSessionExecTool(), session.NewSessionExecHandler(mgr))
-		s.AddTool(session.NewSessionWriteFileTool(), session.NewSessionWriteFileHandler(mgr))
-		s.AddTool(session.NewSessionReadFileTool(), session.NewSessionReadFileHandler(mgr))
-		s.AddTool(session.NewSessionDestroyTool(), session.NewSessionDestroyHandler(mgr))
-
-		log.Println("Added session tools (session_create, session_exec, session_write_file, session_read_file, session_destroy)")
 
 		log.Println("Starting Sandbox MCP server...")
 
